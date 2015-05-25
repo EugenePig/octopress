@@ -9,17 +9,18 @@ ssh_port       = "22"
 document_root  = "~/website.com/"
 rsync_delete   = false
 rsync_args     = ""  # Any extra arguments to pass to rsync
-deploy_default = "rsync"
+deploy_default = "openshift"
 
 # This will be configured for you when you run config_deploy
-deploy_branch  = "gh-pages"
+deploy_branch  = "master"
 
 ## -- Misc Configs -- ##
 
 public_dir      = "public"    # compiled site directory
 source_dir      = "source"    # source file directory
 blog_index_dir  = 'source'    # directory for your blog's index page (if you put your index in source/blog/index.html, set this to 'source/blog')
-deploy_dir      = "_deploy"   # deploy directory (for Github pages deployment)
+deploy_dir      = "../blog"     # deploy directory (for OpenShift deployment)
+deploy_public   = "#{deploy_dir}/public"  # Public Directory of OpenShift Deployment
 stash_dir       = "_stash"    # directory to stash posts for speedy generation
 posts_dir       = "_posts"    # directory for blog files
 themes_dir      = ".themes"   # directory for blog files
@@ -214,6 +215,27 @@ end
 # Deploying  #
 ##############
 
+desc "deploy public directory to OpenShift"
+multitask :openshift do
+  puts "## Deploying branch to OpenShift"
+  unless File::exists?(".openshift_failed")
+    Rake::Task[:generate].execute
+  end
+  (Dir["#{deploy_public}/*"]).each { |f| rm_rf(f) }
+  Rake::Task[:copydot].invoke(public_dir, deploy_public)
+  puts "\n## Copying #{public_dir} to #{deploy_public}"
+  cp_r "#{public_dir}/.", deploy_public
+  cd "#{deploy_dir}" do
+    system "git add -A"
+    puts "\n## Commiting: Site updated at #{Time.now.utc}"
+    message = "Site updated at #{Time.now.utc}"
+    system "git commit -m \"#{message}\""
+    puts "\n## Pushing generated #{deploy_dir} website"
+    system "git push"
+    puts "\n## OpenShift deploy complete"
+  end
+end
+
 desc "Default deploy task"
 task :deploy do
   # Check if preview posts exist, which should not be published
@@ -252,7 +274,7 @@ desc "deploy public directory to github pages"
 multitask :push do
   puts "## Deploying branch to Github Pages "
   puts "## Pulling any updates from Github Pages "
-  cd "#{deploy_dir}" do 
+  cd "#{deploy_dir}" do
     Bundler.with_clean_env { system "git pull" }
   end
   (Dir["#{deploy_dir}/*"]).each { |f| rm_rf(f) }
